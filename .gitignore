@@ -1,10 +1,90 @@
-# Python-generated files
+# Python-related
 __pycache__/
-*.py[oc]
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+*.pdb
+*.egg-info/
+*.egg
+*.whl
+*.dist-info/
+*.mypy_cache/
+*.pytest_cache/
+*.coverage
+*.cover
+*.hypothesis/
+*.tox/
+*.venv/
+.venv/
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Jupyter Notebook files
+.ipynb_checkpoints
+
+# Build directories
 build/
 dist/
 wheels/
-*.egg-info
+
+# Distribution files
+*.egg-info/
+*.egg
+*.whl
+
+# IDE and editor files
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.swp
+*.swo
+*.sublime-settings
+
+# OS generated files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Icon?
+Desktop.ini
+
+# Excel files
+*.xls
+*.xlsx
+*.xlsm
+*.xlsb
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+
+# Backup files
+*~
+*.bak
+*.orig
+*.swp
+
+# Other files
+*.DS_Store
 
 # Virtual environments
 .venv
@@ -13,4 +93,5 @@ wheels/
 .xlsx
 .xlsm
 .xlsb
-.xlsm
+.xls
+.env

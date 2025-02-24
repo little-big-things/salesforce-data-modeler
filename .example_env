@@ -1,0 +1,4 @@
+SALESFORCE_USERNAME=salesforce_username
+SALESFORCE_PASSWORD=salesforce_password
+SALESFORCE_SECURITY_TOKEN=salesforce_security_token
+SALESFORCE_DOMAIN=login 
