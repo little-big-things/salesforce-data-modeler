@@ -2,6 +2,26 @@ import duckdb
 import json
 from datetime import datetime
 
+def get_relationships(sf, object_name):
+    """
+    Extract relationship fields from a Salesforce object
+    """
+    obj_metadata = getattr(sf, object_name).describe()
+    
+    relationships = []
+    for field in obj_metadata['fields']:
+        if field['type'] == 'reference':
+            for ref in field['referenceTo']:
+                relationships.append({
+                    'field_name': field['name'],
+                    'relationship_name': field['relationshipName'],
+                    'reference_to': ref,
+                    'is_primary_key': field['name'] == 'Id',
+                    'is_foreign_key': True
+                })
+    
+    return relationships
+
 def store_metadata_in_duckdb(sf, metadata, db_path='salesforce_metadata.db'):
     """
     Store Salesforce metadata and relationships in DuckDB
@@ -11,9 +31,13 @@ def store_metadata_in_duckdb(sf, metadata, db_path='salesforce_metadata.db'):
     relationship_count = 0
     
     try:
-        # Create metadata table if it doesn't exist
+        # Drop existing tables to ensure clean schema
+        conn.execute("DROP TABLE IF EXISTS salesforce_metadata")
+        conn.execute("DROP TABLE IF EXISTS salesforce_relationships")
+        
+        # Create metadata table with correct schema
         conn.execute("""
-            CREATE TABLE IF NOT EXISTS salesforce_metadata (
+            CREATE TABLE salesforce_metadata (
                 timestamp TIMESTAMP,
                 object_name VARCHAR,
                 label VARCHAR,
@@ -24,9 +48,9 @@ def store_metadata_in_duckdb(sf, metadata, db_path='salesforce_metadata.db'):
             )
         """)
         
-        # Create relationships table if it doesn't exist
+        # Create relationships table
         conn.execute("""
-            CREATE TABLE IF NOT EXISTS salesforce_relationships (
+            CREATE TABLE salesforce_relationships (
                 timestamp TIMESTAMP,
                 source_object VARCHAR,
                 field_name VARCHAR,
@@ -39,84 +63,60 @@ def store_metadata_in_duckdb(sf, metadata, db_path='salesforce_metadata.db'):
         
         # Process each sObject from the metadata
         for sobject in metadata['sobjects']:
-            if not sobject['queryable']:
-                continue
+            try:
+                if not sobject['queryable']:
+                    continue
 
-            # Get detailed metadata for this object
-            print(f"Getting detailed metadata for {sobject['name']}...")
-            detailed_metadata = getattr(sf, sobject['name']).describe()
-            
-            # Store main metadata
-            conn.execute("""
-                INSERT INTO salesforce_metadata (
-                    timestamp,
-                    object_name,
-                    label,
-                    custom,
-                    queryable,
-                    fields,
-                    metadata
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (
-                datetime.now(),
-                sobject['name'],
-                sobject['label'],
-                sobject['custom'],
-                sobject['queryable'],
-                json.dumps(detailed_metadata['fields']),
-                json.dumps(detailed_metadata)
-            ))
-            
-            # Store relationships
-            for field in detailed_metadata['fields']:
-                # Store primary key (Id field)
-                if field['type'] == 'id':
-                    relationship_count += 1
-                    print(f"Found primary key: {sobject['name']}.{field['name']}")
-                    conn.execute("""
-                        INSERT INTO salesforce_relationships (
-                            timestamp,
-                            source_object,
-                            field_name,
-                            relationship_name,
-                            reference_to,
-                            is_primary_key,
-                            is_foreign_key
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """, (
-                        datetime.now(),
-                        sobject['name'],
-                        field['name'],
-                        '',  # No relationship name for primary key
-                        sobject['name'],  # References itself
-                        True,
-                        False
-                    ))
+                # Store main metadata
+                conn.execute("""
+                    INSERT INTO salesforce_metadata (
+                        timestamp,
+                        object_name,
+                        label,
+                        custom,
+                        queryable,
+                        fields,
+                        metadata
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    datetime.now(),
+                    sobject['name'],
+                    sobject.get('label', ''),  # Use get() with default value
+                    sobject.get('custom', False),
+                    sobject.get('queryable', False),
+                    json.dumps(sobject.get('fields', [])),
+                    json.dumps(sobject)
+                ))
                 
-                # Store foreign key relationships
-                if field['type'] == 'reference' and field.get('referenceTo'):
-                    for ref in field['referenceTo']:
-                        relationship_count += 1
-                        print(f"Found foreign key relationship: {sobject['name']}.{field['name']} -> {ref}")
-                        conn.execute("""
-                            INSERT INTO salesforce_relationships (
-                                timestamp,
-                                source_object,
-                                field_name,
-                                relationship_name,
-                                reference_to,
-                                is_primary_key,
-                                is_foreign_key
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                        """, (
-                            datetime.now(),
-                            sobject['name'],
-                            field['name'],
-                            field.get('relationshipName', ''),
-                            ref,
-                            False,
-                            True
-                        ))
+                # Store relationships
+                for field in sobject.get('fields', []):
+                    if field['type'] == 'reference' and field.get('referenceTo'):
+                        for ref in field['referenceTo']:
+                            relationship_count += 1
+                            print(f"Found relationship: {sobject['name']}.{field['name']} -> {ref}")
+                            conn.execute("""
+                                INSERT INTO salesforce_relationships (
+                                    timestamp,
+                                    source_object,
+                                    field_name,
+                                    relationship_name,
+                                    reference_to,
+                                    is_primary_key,
+                                    is_foreign_key
+                                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                            """, (
+                                datetime.now(),
+                                sobject['name'],
+                                field['name'],
+                                field.get('relationshipName', ''),
+                                ref,
+                                field['name'] == 'Id',
+                                True
+                            ))
+                
+            except Exception as e:
+                print(f"Warning: Could not process object {sobject['name']}: {str(e)}")
+                continue
         
         conn.commit()
         print(f"Total relationships stored: {relationship_count}")
@@ -131,26 +131,26 @@ def store_metadata_in_duckdb(sf, metadata, db_path='salesforce_metadata.db'):
 def verify_relationships():
     conn = duckdb.connect('salesforce_metadata.db')
     
-    # Check primary keys
-    print("\nSample Primary Keys:")
-    result = conn.execute("""
-        SELECT source_object, field_name
-        FROM salesforce_relationships 
-        WHERE is_primary_key = true
-        LIMIT 5
-    """).fetchall()
-    for row in result:
-        print(f"{row[0]}.{row[1]} (Primary Key)")
+    try:
+        # Check primary keys
+        print("\nSample Primary Keys:")
+        result = conn.execute("""
+            SELECT source_object, field_name
+            FROM salesforce_relationships 
+            WHERE is_primary_key = true
+        """).fetchall()
+        for row in result:
+            print(f"{row[0]}.{row[1]} (Primary Key)")
+        
+        # Check foreign keys
+        print("\nSample Foreign Key Relationships:")
+        result = conn.execute("""
+            SELECT source_object, field_name, reference_to
+            FROM salesforce_relationships 
+            WHERE is_foreign_key = true
+        """).fetchall()
+        for row in result:
+            print(f"{row[0]}.{row[1]} -> {row[2]}")
     
-    # Check foreign keys
-    print("\nSample Foreign Key Relationships:")
-    result = conn.execute("""
-        SELECT source_object, field_name, reference_to
-        FROM salesforce_relationships 
-        WHERE is_foreign_key = true
-        LIMIT 5
-    """).fetchall()
-    for row in result:
-        print(f"{row[0]}.{row[1]} -> {row[2]}")
-    
-    conn.close() 
+    finally:
+        conn.close() 

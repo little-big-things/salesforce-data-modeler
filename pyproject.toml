@@ -11,5 +11,6 @@ dependencies = [
     "python-dotenv>=1.0.1",
     "requests>=2.32.3",
     "simple-salesforce>=1.12.6",
+    "typer>=0.15.1",
     "xlsxwriter>=3.2.2",
 ]
